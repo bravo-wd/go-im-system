@@ -63,10 +63,11 @@ func (s *Server) handler(conn net.Conn) {
 		}
 		if err != nil && err != io.EOF {
 			fmt.Println("读取出错", err)
+			user.offline()
 			return
 		}
 		msg := string(buf[:n-1])
-		user.doMessage(msg)
+		user.processMessage(msg)
 	}
 }
 
