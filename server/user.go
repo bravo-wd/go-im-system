@@ -48,8 +48,20 @@ func (u *User) offline() {
 // /to Alice hello	私聊，消息可以包含空格
 // /quit			断开连接
 func (u *User) processMessage(msg string) {
-	switch {
-	case msg == "all":
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return
+	}
+	// 群聊
+	if !strings.HasPrefix(msg, "/") {
+		u.server.Message <- fmt.Sprintf("「%s」: %s", u.Name, msg)
+		return
+	}
+
+	cmd, args, _ := strings.Cut(msg, " ")
+	args = strings.TrimSpace(args)
+	switch cmd {
+	case "/who":
 		var allUserName []string
 		u.server.mapLock.RLock()
 		for k := range u.server.OnlineMap {
@@ -60,12 +72,13 @@ func (u *User) processMessage(msg string) {
 		for _, name := range allUserName {
 			u.C <- name
 		}
-	case msg == "rename|":
-		u.C <- fmt.Sprintf("「服务器」: 用户名不能为空")
-	case msg == "to|":
-		u.C <- fmt.Sprintf("「服务器」: 发送用户名不能为空")
-	case len(msg) > 7 && msg[:7] == "rename|":
-		_, name, _ := strings.Cut(msg, "|")
+		return
+	case "/nick":
+		if args == "" || strings.ContainsAny(args, "\t\r\n") {
+			u.C <- "「服务器」: 昵称不能为空，也不能包含空格"
+			return
+		}
+		name := args
 		var serverMsg string
 		u.server.mapLock.Lock()
 		onlineUser, exist := u.server.OnlineMap[name]
@@ -83,28 +96,32 @@ func (u *User) processMessage(msg string) {
 		}
 		u.server.mapLock.Unlock()
 		u.C <- serverMsg
-	case len(msg) > 3 && msg[:3] == "to|":
-		split := strings.Split(msg, "|")
-		toUser := split[1]
-		if len(split) < 3 || toUser == "" {
-			u.C <- fmt.Sprintf("「服务器」: 消息格式不正确，请使用\"to|[userName]|message\"格式")
-		} else {
-			toMsg := strings.Join(split[2:], "")
-			var user *User
-			var exist bool
-			u.server.mapLock.RLock()
-			user, exist = u.server.OnlineMap[toUser]
-			u.server.mapLock.RUnlock()
-			if exist {
-				user.C <- fmt.Sprintf("「%s」: %s", u.Name, toMsg)
-			} else {
-				u.C <- fmt.Sprintf("「服务器」: 该用户不存在")
-			}
+		return
+	case "/to":
+		name, body, ok := strings.Cut(args, " ")
+		body = strings.TrimSpace(body)
+		if !ok || name == "" || body == "" {
+			u.C <- "「服务器」: 用法：/to 用户名 消息"
+			return
 		}
 
+		toMsg := body
+		var user *User
+		var exist bool
+		u.server.mapLock.RLock()
+		user, exist = u.server.OnlineMap[name]
+		u.server.mapLock.RUnlock()
+		if !exist {
+			u.C <- fmt.Sprintf("「服务器」: 该用户不存在")
+			return
+		}
+		user.C <- fmt.Sprintf("「%s」私聊: %s", u.Name, toMsg)
+		return
+
+	case "/quit":
+		u.conn.Close()
 	default:
-		//向所有用户广播
-		u.server.Message <- fmt.Sprintf("「%s」: %s", u.Name, msg)
+		u.C <- "「服务器」: 未知命令; 可用 /who, /nick, /to, /quit"
 	}
 }
 
