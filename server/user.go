@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net"
+	"sort"
 	"strings"
 )
 
@@ -10,6 +12,7 @@ type User struct {
 	Name string
 	Addr string
 	C    chan string
+	done chan struct{}
 	conn net.Conn
 
 	server *Server
@@ -19,7 +22,8 @@ func newUser(conn net.Conn, server *Server) *User {
 	u := &User{
 		Name:   conn.RemoteAddr().String(),
 		Addr:   conn.RemoteAddr().String(),
-		C:      make(chan string),
+		C:      make(chan string, 32),
+		done:   make(chan struct{}),
 		conn:   conn,
 		server: server,
 	}
@@ -68,13 +72,14 @@ func (u *User) processMessage(msg string) {
 			allUserName = append(allUserName, k)
 		}
 		u.server.mapLock.RUnlock()
+		sort.Strings(allUserName)
 		u.C <- fmt.Sprintf("「服务器」: ----在线用户列表----")
 		for _, name := range allUserName {
 			u.C <- name
 		}
 		return
 	case "/nick":
-		if args == "" || strings.ContainsAny(args, "\t\r\n") {
+		if args == "" || strings.ContainsAny(args, " \t\r\n") {
 			u.C <- "「服务器」: 昵称不能为空，也不能包含空格"
 			return
 		}
@@ -128,7 +133,29 @@ func (u *User) processMessage(msg string) {
 // 向用户发送消息
 func (u *User) sendMessage() {
 	for {
-		msg := <-u.C
-		u.conn.Write([]byte(msg + "\n"))
+		select {
+		case <-u.done:
+			return
+		case msg := <-u.C:
+			if _, err := io.WriteString(u.conn, msg+"\n"); err != nil {
+				u.conn.Close()
+				return
+			}
+		}
+	}
+}
+
+func (u *User) deliver(msg string) {
+	select {
+	case <-u.done:
+		return
+	default:
+	}
+
+	select {
+	case <-u.done:
+	case u.C <- msg:
+	default:
+		u.conn.Close()
 	}
 }

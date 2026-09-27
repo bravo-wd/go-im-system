@@ -1,8 +1,8 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
-	"io"
 	"net"
 	"sync"
 )
@@ -37,13 +37,17 @@ func (s *Server) Start() {
 
 // 向所有用户广播
 func (s *Server) broadCast() {
-	for {
-		msg := <-s.Message
+	for msg := range s.Message {
 		s.mapLock.RLock()
-		for _, v := range s.OnlineMap {
-			v.C <- msg
+		users := make([]*User, 0, len(s.OnlineMap))
+		for _, user := range s.OnlineMap {
+			users = append(users, user)
 		}
 		s.mapLock.RUnlock()
+
+		for _, user := range users {
+			user.deliver(msg)
+		}
 	}
 }
 
@@ -52,22 +56,19 @@ func (s *Server) handler(conn net.Conn) {
 	user := newUser(conn, s)
 	user.online()
 
-	defer conn.Close()
-	buf := make([]byte, 1024)
-	for {
-		n, err := conn.Read(buf)
-		//用户下线处理
-		if n == 0 {
-			user.offline()
-			return
-		}
-		if err != nil && err != io.EOF {
-			fmt.Println("读取出错", err)
-			user.offline()
-			return
-		}
-		msg := string(buf[:n-1])
-		user.processMessage(msg)
+	defer func() {
+		conn.Close()
+		close(user.done)
+		user.offline()
+
+	}()
+
+	scanner := bufio.NewScanner(conn)
+	for scanner.Scan() {
+		user.processMessage(scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		fmt.Println("读取出错：", err)
 	}
 }
 
