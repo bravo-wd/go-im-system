@@ -41,6 +41,12 @@ func (u *User) offline() {
 }
 
 // 处理用户发来的消息
+// 约定协议:
+// hello, everyone	直接群发
+// /who				查看在线用户
+// /nick Alice		修改昵称
+// /to Alice hello	私聊，消息可以包含空格
+// /quit			断开连接
 func (u *User) processMessage(msg string) {
 	switch {
 	case msg == "all":
