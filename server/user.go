@@ -73,14 +73,12 @@ func (u *User) processMessage(msg string) {
 		}
 		u.server.mapLock.RUnlock()
 		sort.Strings(allUserName)
-		u.C <- fmt.Sprintf("「服务器」: ----在线用户列表----")
-		for _, name := range allUserName {
-			u.C <- name
-		}
+		u.deliver("「服务器」: ----在线用户列表----")
+		u.deliver("「服务器」: 在线用户：" + strings.Join(allUserName, "、"))
 		return
 	case "/nick":
 		if args == "" || strings.ContainsAny(args, " \t\r\n") {
-			u.C <- "「服务器」: 昵称不能为空，也不能包含空格"
+			u.deliver("「服务器」: 昵称不能为空，也不能包含空格")
 			return
 		}
 		name := args
@@ -100,33 +98,32 @@ func (u *User) processMessage(msg string) {
 			serverMsg = fmt.Sprintf("「服务器」: 用户名更改成功")
 		}
 		u.server.mapLock.Unlock()
-		u.C <- serverMsg
+		u.deliver(serverMsg)
 		return
 	case "/to":
 		name, body, ok := strings.Cut(args, " ")
 		body = strings.TrimSpace(body)
 		if !ok || name == "" || body == "" {
-			u.C <- "「服务器」: 用法：/to 用户名 消息"
+			u.deliver("「服务器」: 用法：/to 用户名 消息")
 			return
 		}
 
-		toMsg := body
 		var user *User
 		var exist bool
 		u.server.mapLock.RLock()
 		user, exist = u.server.OnlineMap[name]
 		u.server.mapLock.RUnlock()
 		if !exist {
-			u.C <- fmt.Sprintf("「服务器」: 该用户不存在")
+			u.deliver("「服务器」: 该用户不存在")
 			return
 		}
-		user.C <- fmt.Sprintf("「%s」私聊: %s", u.Name, toMsg)
+		user.deliver(fmt.Sprintf("「%s」私聊: %s", u.Name, body))
 		return
 
 	case "/quit":
 		u.conn.Close()
 	default:
-		u.C <- "「服务器」: 未知命令; 可用 /who, /nick, /to, /quit"
+		u.deliver("「服务器」: 未知命令; 可用 /who, /nick, /to, /quit")
 	}
 }
 
